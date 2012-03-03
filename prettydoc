@@ -1,0 +1,459 @@
+#!/usr/bin/env lua.exe
+
+debugging = false
+
+tagstack = {}
+
+function html_clean(value)
+  if type(value) ~= 'string' then
+    value = tostring(value)
+  end
+  value = value:gsub('&', '&amp;')
+  value = value:gsub('<', '&lt;')
+  value = value:gsub('>', '&gt;')
+  value = value:gsub("\n", '<br/>')
+  return value
+end
+
+function raw(fmt, ...)
+  local out = string.format(fmt, ...)
+  for i = 1, depth do
+    htmlfile:write("  ")
+  end
+  htmlfile:write(out)
+  htmlfile:write("\n")
+end
+
+function html(fmt, ...)
+  local cleaned = {}
+  for _, value in ipairs(arg) do
+    table.insert(cleaned, html_clean(value))
+  end
+  raw(fmt, unpack(cleaned))
+end
+
+function debug(fmt, ...)
+  if debugging then
+    html(fmt, ...)
+  end
+end
+
+function tag_push(name)
+  table.insert(tagstack, name)
+  html("<%s>", name)
+  depth = depth + 1
+end
+
+function pretty_sig(sigs, params, results)
+  local arg_types = {}
+  local arg_descriptions = {}
+  local sorted_params = nil
+  local sorted_results = nil
+  local deprecated, interaction, throttled, hardware, secure, insecure
+
+  for key, value in pairs(sigs) do
+    debug('<p><i>%s</i>: %s</p>', key, value)
+  end
+  if params then
+    sorted_params = {}
+    for key, value in pairs(params) do
+      debug('<p>param <i>%s</i>: %s</p>', key, value)
+    end
+    for name, value in pairs(params) do
+      arg_descriptions[name] = value
+      table.insert(sorted_params, name)
+    end
+    table.sort(sorted_params)
+  end
+  if results then
+    sorted_results = {}
+    for key, value in pairs(results) do
+      debug('<p>result <i>%s</i>: %s</p>', key, value)
+    end
+    for name, value in pairs(results) do
+      arg_descriptions[name] = value
+      table.insert(sorted_results, name)
+    end
+    table.sort(sorted_results)
+  end
+
+  if sigs.interaction then
+    interaction = sigs.interaction
+    sigs.interaction = nil
+  else
+    interaction = false
+  end
+  if sigs.deprecated then
+    deprecated = true
+    sigs.deprecated = nil
+  end
+  if sigs.hardwareevent then
+    hardware = true
+    sigs.hardwareevent = nil
+  else
+    hardwareevent = false
+  end
+  if sigs.throttled then
+    throttled = sigs.throttled
+    sigs.throttled = nil
+  else
+    throttled = false
+  end
+  if sigs.noSecureFrameAndEnvironment then
+    sigs.noSecureFrameAndEnvironment = nil
+    insecure = true
+  end
+  if sigs.requireSecureFrameAndInsecureEnvironment then
+    sigs.requireSecureFrameAndInsecureEnvironment = nil
+    secure = true
+  end
+  for k, v in pairs(sigs) do
+    if type(k) ~= 'number' then
+      print("Unknown sig field: " .. tostring(k))
+      html('<h4>unknown sig field %s: %s</h4>',
+        k, v)
+    end
+  end
+  html('<h3>Usage: %s %s %s</h3>',
+  	hardwareevent and '(Requires Hardware Event)' or '',
+  	secure and '(Requires Secure Frame)' or '',
+  	insecure and '(Does Not Require Secure Frame)' or '')
+  if deprecated then
+    html('<h4><i>DEPRECATED</i>.  Do not use.</h4>')
+  end
+  if interaction then
+    html('<p>Interaction category: %s</p>', interaction)
+  end
+  if throttled then
+    html('<p>Throttled.</p>')
+  end
+  tag_push('table')
+  signatures_seen = {}
+  for _, value in ipairs(sigs) do
+-- Couldn't parse sig: Command.Auction.Bid(auction, bid)   -- auction, number
+    if string.match(value, '.*=.*') then
+      retname, name, args, types = string.match(value, '([^=]+[^%s])%s*=%s*([^%(]+)%(([^%)]*)%)%s*%-%-%s*(.*)')
+      rettype, argtypes = string.match(types, '([^<]+[^%s])%s*<%-%s*(.*)')
+      if string.find(retname, '%s') then
+        broken_out_rets = split(retname, ',%s*')
+	broken_out_rettypes = split(rettype, ',%s*')
+	for idx, arg in ipairs(broken_out_rets) do
+	  arg_types[arg] = arg_types[arg] or {}
+	  arg_types[arg][broken_out_rettypes[idx] or '<nope>'] = true
+	end
+      else
+	arg_types[retname] = arg_types[retname] or {}
+	arg_types[retname][rettype] = true
+      end
+    else
+      name, args, argtypes = string.match(value, '%s*([^%(]+)%(([^%)]*)%)%s*%-%-%s*(.*)')
+      retname = nil
+    end
+    if argtypes and args ~= '' then
+      broken_out_args = split(args, ',%s*')
+      broken_out_argtypes = split(argtypes, ',%s*')
+      replacement_args = ''
+      for idx, arg in ipairs(broken_out_args) do
+	arg_types[arg] = arg_types[arg] or {}
+	arg_types[arg][broken_out_argtypes[idx] or '<nope>'] = true
+	if replacement_args == '' then
+	  replacement_args = string.format("<i>%s</i>", html_clean(arg))
+	else
+	  replacement_args = replacement_args .. string.format(", <i>%s</i>", html_clean(arg))
+	end
+      end
+      debug("<tr><td colspan=4>replacement_args: %s</td></tr>", replacement_args)
+    else
+      replacement_args = args
+    end
+    if argtypes then
+      if retname then
+	signature = string.format('<i>%s</i> = %s(%s)',
+	  html_clean(retname), html_clean(name), replacement_args)
+      else
+	signature = string.format('%s(%s)',
+	  html_clean(name), replacement_args)
+      end
+      if not signatures_seen[signature] then
+	raw('<tr><td colspan=4>%s</td></tr>', signature)
+	signatures_seen[signature] = true
+      end
+    else
+      die("Couldn't parse sig: %s\n", value)
+    end
+  end
+  sorted_types = {}
+  for name, _ in pairs(arg_types) do
+    -- if this isn't in either results or params, we should use it
+    if not (params and params[name]) then
+      if not (results and results[name]) then
+        table.insert(sorted_types, name)
+      end
+    end
+  end
+  table.sort(sorted_types)
+  if sorted_types[1] or sorted_params or sorted_results then
+    html('<tr><th>Parameter</th><th>Type</th><th>Datatype</th><th>Description</th></tr>')
+  end
+  pretty_types = {}
+  for name, value in pairs(arg_types) do
+    type_list = {}
+    for key, _ in pairs(value) do
+      table.insert(type_list, key)
+    end
+    pretty_types[name] = table.concat(type_list, ", ")
+  end
+  for _, name in ipairs(sorted_types) do
+    html('<tr><td><i>%s</i></td><td>???</td><td><i>%s</i></td><td>%s</td></tr>',
+      name, pretty_types[name], arg_descriptions[name] or '')
+  end
+  if sorted_params then
+    for _, name in ipairs(sorted_params) do
+      html('<tr><td><i>%s</i></td><td>parameter</td><td><i>%s</i></td><td>%s</td></tr>',
+        name, pretty_types[name], arg_descriptions[name] or '')
+    end
+  end
+  if sorted_results then
+    for _, name in ipairs(sorted_results) do
+      html('<tr><td><i>%s</i></td><td>result</td><td><i>%s</i></td><td>%s</td></tr>',
+        name, pretty_types[name], arg_descriptions[name] or '')
+    end
+  end
+  tag_pop()
+end
+
+function pretty_value(name, value)
+  tag_push('tr')
+  html('<th>%s</th>', name)
+  if type(value) == 'table' then
+    tag_push('td')
+    pretty_table(value)
+    tag_pop()
+  else
+    html('<td>%s</th>', tostring(value))
+  end
+  tag_pop()
+end
+
+function pretty_table(data)
+  tag_push('table')
+  local sorted = {}
+  for name, _ in pairs(data) do
+    if type(name) ~= 'number' then
+      table.insert(sorted, name)
+    end
+  end
+  table.sort(sorted)
+  for idx, value in ipairs(data) do
+    pretty_value(string.format('[%d]', idx), value)
+  end
+  for _, name in ipairs(sorted) do
+    value = data[name]
+    pretty_value(name, value)
+  end
+  tag_pop()
+end
+
+function tag_pop(new_depth)
+  if not new_depth then
+    new_depth = depth - 1
+    if new_depth < 0 then
+      new_depth = 0
+    end
+  end
+  while new_depth < depth do
+    tag = tagstack[#(tagstack)]
+    table.remove(tagstack, #(tagstack))
+    depth = depth - 1
+    html("</%s>", tag)
+  end
+end
+
+function printf(fmt, ...)
+  local out = string.format(fmt, ...)
+  io.write(out)
+end
+
+function die(fmt, ...)
+  printf('Fatal: ' .. fmt, ...)
+  os.exit(1)
+end
+
+if #(arg) ~= 2 then
+  die("Usage: prettydoc <name> <directory>\n")
+end
+
+name = arg[1]
+dir = arg[2]
+fullname = dir .. "/../Saved/SavedVariables/DocExport.lua"
+
+file, err = io.open(fullname)
+
+if not file then
+  die("Couldn't open DocExport.lua: %s\n", err)
+end
+
+io.close(file)
+
+dofile(fullname)
+
+if not DocExport then
+  die("Parse failed or didn't yield a variable named DocExport.")
+end
+
+sorted = {}
+
+for name, _ in pairs(DocExport) do
+  table.insert(sorted, name)
+end
+
+table.sort(sorted)
+
+file, err = io.open(name .. ".html", "w")
+if not file then
+  die("Couldn't open %s.html: %s\n", name, err)
+end
+
+htmlfile = file
+depth = 0
+
+tag_push('html')
+html("<head><title>API Docs (%s)</title></head>", name)
+tag_push('body')
+tag_push('style')
+html("table { border-style: solid; border-collapse: collapse; }")
+html("th { border-bottom-style: solid; padding: 3pt; text-align: left; vertical-align: top; }")
+html("td { border-bottom-style: solid; padding: 3pt; text-align: left; vertical-align: top; }")
+tag_pop()
+
+function split(s, pattern)
+  splits = {}
+  while string.find(s, pattern) do
+    from, to = string.find(s, pattern)
+    word = string.sub(s, 1, from - 1)
+    s = string.sub(s, to + 1)
+    table.insert(splits, word)
+  end
+  table.insert(splits, s)
+  return splits
+end
+
+summary_index = {}
+type_index = {}
+hardware_index = {}
+deprecated_index = {}
+req_secure_index = {}
+no_secure_index = {}
+
+-- pass 1:  collect data
+for _, name in ipairs(sorted) do
+  local details = DocExport[name]
+  local dtype = type(details)
+  if dtype == 'table' then
+    if details['type'] then
+      my_type = details['type']
+      type_index[name] = details['type']
+      details['type'] = nil
+    else
+      my_type = ''
+    end
+    if details['summary'] then
+      if my_type ~= '' then
+        display_type = string.format('%s:', my_type)
+      else
+        display_type = ''
+      end
+      summary_index[name] = details['summary']
+      details['summary'] = nil
+    end
+    if details.signatures then
+      if details.signatures.hardwareevent then
+        hardware_index[name] = true
+      end
+      if details.signatures.deprecated then
+        deprecated_index[name] = true
+      end
+      if details.signatures.noSecureFrameAndEnvironment then
+        no_secure_index[name] = true
+      end
+      if details.signatures.requireSecureFrameAndInsecureEnvironment then
+        req_secure_index[name] = true
+      end
+      if no_secure_index[name] and req_secure_index[name] then
+        print("Both secure and insecure: " .. name)
+      end
+    end
+    details['name'] = nil
+    details['readable'] = nil
+    details['order'] = nil
+  end
+end
+
+-- pass 2:  Display index.
+
+html("<h1>INDEX</h1>")
+tag_push('table')
+html("<tr><th>Name</th><th>Type</th><th>Deprecated</th><th>Secure</th><th>Description</th></tr>")
+for _, name in ipairs(sorted) do
+  if type_index[name] or summary_index[name] then
+    summary = summary_index[name] or ''
+    if #summary > 100 then
+      summary = string.sub(summary, 1, 97) .. '...'
+    end
+    html('<tr><td><a href="#%s">%s</a></td><td><i>%s</i></td><td><i>%s</i></td><td>%s%s</td><td>%s</td></tr>',
+      name,
+      name,
+      type_index[name] or '',
+      deprecated_index[name] and 'deprecated' or '',
+      req_secure_index[name] and 'Secure' or '',
+      no_secure_index[name] and 'Insecure' or '',
+      summary)
+  end
+end
+tag_pop()
+
+-- pass 3:  Detailed info
+for _, name in ipairs(sorted) do
+  local details = DocExport[name]
+  local dtype = type(details)
+  html('<h2><a name="%s">%s</a></h2>', name, name)
+  if summary_index[name] then
+      html("<p><i>%s</i> %s</p>", display_type, summary_index[name])
+  end
+  if dtype == 'table' then
+    if details['signature'] then
+      sigs = { string.format("%s -- variant", details['signature']) }
+      params = details['parameter']
+      results = details['result']
+      details['signature'] = nil
+      details['parameter'] = nil
+      details['result'] = nil
+      pretty_sig(sigs, params, results)
+    end
+    if details['signatures'] then
+      sigs = details['signatures']
+      params = details['parameter']
+      results = details['result']
+      details['signatures'] = nil
+      details['parameter'] = nil
+      details['result'] = nil
+      pretty_sig(sigs, params, results)
+    end
+    tag_push("dl")
+    for name, value in pairs(details) do
+      html("<dt><b>%s</b></dt>", name)
+      if type(value) == 'table' then
+	tag_push('dd')
+	pretty_table(value)
+	tag_pop()
+      else
+	html("<dd>%s</dd>", tostring(value))
+      end
+    end
+    tag_pop()
+  else
+    html("<p>(%s) %s</p>", dtype, tostring(details))
+  end
+end
+
+tag_pop(0)

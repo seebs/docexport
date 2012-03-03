@@ -1,0 +1,7 @@
+2012/03/01:
+	* Handle more signatures fields, such as secure, hardware,
+	  interaction, and deprecation tags.
+
+2012/02/28:
+	* Initial release
+

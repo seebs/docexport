@@ -1,0 +1,27 @@
+Identifier = "DocExport"
+
+Version = "VERSION"
+
+Email = "seebs@seebs.net"
+
+Name = {
+  English = "DocExport",
+  French = "DocExport",
+  German = "DocExport",
+}
+NameShort = "DocExport"
+
+SavedVariables = {
+  DocExport = "global",
+}
+
+Description = {
+  English = "A library which exports all addon docs as saved variables."
+}
+
+RunOnStartup = {
+  "DocExport.lua"
+}
+
+Environment = { "1.7", "1.8" }
+
