@@ -5,7 +5,7 @@
 
 all_documentables = Inspect.Documentation()
 
-local DocEx = {}
+local addoninfo, DocEx = ...
 
 function DocEx.variables_loaded(name)
   if name == 'DocExport' then
