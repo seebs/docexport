@@ -4,7 +4,42 @@ debugging = false
 
 tagstack = {}
 
-function html_clean(value)
+local HTML = {}
+HTML.__index = HTML
+
+function HTML:new(filename)
+  local file, err = io.open(filename .. ".html", "w")
+  if not file then
+    die("Couldn't open %s.html: %s\n", filename, err)
+  end
+  local o = {
+    name = filename,
+    file = file,
+    depth = 0,
+    tagstack = {},
+    lines = {}
+  }
+  setmetatable(o, self)
+  return o
+end
+
+function HTML:close()
+  self:flush()
+  io.close(self.file)
+  self.file = nil
+end
+
+function HTML:flush()
+  if not self.file then
+    die("Trying to flush %s, but no file?", self.name or "--nameless--")
+  end
+  for _, line in ipairs(self.lines) do
+    self.file:write(line)
+  end
+  self:tag_pop(0)
+end
+
+function HTML:clean(value)
   if type(value) ~= 'string' then
     value = tostring(value)
   end
@@ -15,36 +50,38 @@ function html_clean(value)
   return value
 end
 
-function raw(fmt, ...)
+
+function HTML:raw(fmt, ...)
   local out = string.format(fmt, ...)
-  for i = 1, depth do
-    htmlfile:write("  ")
+  local line = ""
+  for i = 1, self.depth do
+    line = line .. "  "
   end
-  htmlfile:write(out)
-  htmlfile:write("\n")
+  line = line .. out .. "\n"
+  table.insert(self.lines, line)
 end
 
-function html(fmt, ...)
+function HTML:html(fmt, ...)
   local cleaned = {}
   for _, value in ipairs(arg) do
-    table.insert(cleaned, html_clean(value))
+    table.insert(cleaned, self:clean(value))
   end
-  raw(fmt, unpack(cleaned))
+  self:raw(fmt, unpack(cleaned))
 end
 
-function debug(fmt, ...)
+function HTML:debug(fmt, ...)
   if debugging then
-    html(fmt, ...)
+    self:html(fmt, ...)
   end
 end
 
-function tag_push(name)
-  table.insert(tagstack, name)
-  html("<%s>", name)
-  depth = depth + 1
+function HTML:tag_push(name)
+  table.insert(self.tagstack, name)
+  self:html("<%s>", name)
+  self.depth = self.depth + 1
 end
 
-function pretty_sig(sigs, params, results)
+function HTML:pretty_sig(sigs, params, results)
   local arg_types = {}
   local arg_descriptions = {}
   local sorted_params = nil
@@ -52,12 +89,12 @@ function pretty_sig(sigs, params, results)
   local deprecated, interaction, throttled, hardware, secure, insecure
 
   for key, value in pairs(sigs) do
-    debug('<p><i>%s</i>: %s</p>', key, value)
+    self:debug('<p><i>%s</i>: %s</p>', key, value)
   end
   if params then
     sorted_params = {}
     for key, value in pairs(params) do
-      debug('<p>param <i>%s</i>: %s</p>', key, value)
+      self:debug('<p>param <i>%s</i>: %s</p>', key, value)
     end
     for name, value in pairs(params) do
       arg_descriptions[name] = value
@@ -68,7 +105,7 @@ function pretty_sig(sigs, params, results)
   if results then
     sorted_results = {}
     for key, value in pairs(results) do
-      debug('<p>result <i>%s</i>: %s</p>', key, value)
+      self:debug('<p>result <i>%s</i>: %s</p>', key, value)
     end
     for name, value in pairs(results) do
       arg_descriptions[name] = value
@@ -110,27 +147,26 @@ function pretty_sig(sigs, params, results)
   for k, v in pairs(sigs) do
     if type(k) ~= 'number' then
       print("Unknown sig field: " .. tostring(k))
-      html('<h4>unknown sig field %s: %s</h4>',
+      self:html('<h4>unknown sig field %s: %s</h4>',
         k, v)
     end
   end
-  html('<h3>Usage: %s %s %s</h3>',
+  self:html('<h3>Usage: %s %s %s</h3>',
   	hardwareevent and '(Requires Hardware Event)' or '',
   	secure and '(Requires Secure Frame)' or '',
   	insecure and '(Does Not Require Secure Frame)' or '')
   if deprecated then
-    html('<h4><i>DEPRECATED</i>.  Do not use.</h4>')
+    self:html('<h4><i>DEPRECATED</i>.  Do not use.</h4>')
   end
   if interaction then
-    html('<p>Interaction category: %s</p>', interaction)
+    self:html('<p>Interaction category: %s</p>', interaction)
   end
   if throttled then
-    html('<p>Throttled.</p>')
+    self:html('<p>Throttled.</p>')
   end
-  tag_push('table')
+  self:tag_push('table')
   signatures_seen = {}
   for _, value in ipairs(sigs) do
--- Couldn't parse sig: Command.Auction.Bid(auction, bid)   -- auction, number
     if string.match(value, '.*=.*') then
       retname, name, args, types = string.match(value, '([^=]+[^%s])%s*=%s*([^%(]+)%(([^%)]*)%)%s*%-%-%s*(.*)')
       rettype, argtypes = string.match(types, '([^<]+[^%s])%s*<%-%s*(.*)')
@@ -157,25 +193,25 @@ function pretty_sig(sigs, params, results)
 	arg_types[arg] = arg_types[arg] or {}
 	arg_types[arg][broken_out_argtypes[idx] or '<nope>'] = true
 	if replacement_args == '' then
-	  replacement_args = string.format("<i>%s</i>", html_clean(arg))
+	  replacement_args = string.format("<i>%s</i>", self:clean(arg))
 	else
-	  replacement_args = replacement_args .. string.format(", <i>%s</i>", html_clean(arg))
+	  replacement_args = replacement_args .. string.format(", <i>%s</i>", self:clean(arg))
 	end
       end
-      debug("<tr><td colspan=4>replacement_args: %s</td></tr>", replacement_args)
+      self:debug("<tr><td colspan=4>replacement_args: %s</td></tr>", replacement_args)
     else
       replacement_args = args
     end
     if argtypes then
       if retname then
 	signature = string.format('<i>%s</i> = %s(%s)',
-	  html_clean(retname), html_clean(name), replacement_args)
+	  self:clean(retname), self:clean(name), replacement_args)
       else
 	signature = string.format('%s(%s)',
-	  html_clean(name), replacement_args)
+	  self:clean(name), replacement_args)
       end
       if not signatures_seen[signature] then
-	raw('<tr><td colspan=4>%s</td></tr>', signature)
+	self:raw('<tr><td colspan=4>%s</td></tr>', signature)
 	signatures_seen[signature] = true
       end
     else
@@ -193,7 +229,7 @@ function pretty_sig(sigs, params, results)
   end
   table.sort(sorted_types)
   if sorted_types[1] or sorted_params or sorted_results then
-    html('<tr><th>Parameter</th><th>Type</th><th>Datatype</th><th>Description</th></tr>')
+    self:html('<tr><th>Parameter</th><th>Type</th><th>Datatype</th><th>Description</th></tr>')
   end
   pretty_types = {}
   for name, value in pairs(arg_types) do
@@ -204,39 +240,39 @@ function pretty_sig(sigs, params, results)
     pretty_types[name] = table.concat(type_list, ", ")
   end
   for _, name in ipairs(sorted_types) do
-    html('<tr><td><i>%s</i></td><td>???</td><td><i>%s</i></td><td>%s</td></tr>',
+    self:html('<tr><td><i>%s</i></td><td>???</td><td><i>%s</i></td><td>%s</td></tr>',
       name, pretty_types[name], arg_descriptions[name] or '')
   end
   if sorted_params then
     for _, name in ipairs(sorted_params) do
-      html('<tr><td><i>%s</i></td><td>parameter</td><td><i>%s</i></td><td>%s</td></tr>',
+      self:html('<tr><td><i>%s</i></td><td>parameter</td><td><i>%s</i></td><td>%s</td></tr>',
         name, pretty_types[name], arg_descriptions[name] or '')
     end
   end
   if sorted_results then
     for _, name in ipairs(sorted_results) do
-      html('<tr><td><i>%s</i></td><td>result</td><td><i>%s</i></td><td>%s</td></tr>',
+      self:html('<tr><td><i>%s</i></td><td>result</td><td><i>%s</i></td><td>%s</td></tr>',
         name, pretty_types[name], arg_descriptions[name] or '')
     end
   end
-  tag_pop()
+  self:tag_pop()
 end
 
-function pretty_value(name, value)
-  tag_push('tr')
-  html('<th>%s</th>', name)
+function HTML:pretty_value(name, value)
+  self:tag_push('tr')
+  self:html('<th>%s</th>', name)
   if type(value) == 'table' then
-    tag_push('td')
-    pretty_table(value)
-    tag_pop()
+    self:tag_push('td')
+    self:pretty_table(value)
+    self:tag_pop()
   else
-    html('<td>%s</th>', tostring(value))
+    self:html('<td>%s</th>', tostring(value))
   end
-  tag_pop()
+  self:tag_pop()
 end
 
-function pretty_table(data)
-  tag_push('table')
+function HTML:pretty_table(data)
+  self:tag_push('table')
   local sorted = {}
   for name, _ in pairs(data) do
     if type(name) ~= 'number' then
@@ -245,27 +281,27 @@ function pretty_table(data)
   end
   table.sort(sorted)
   for idx, value in ipairs(data) do
-    pretty_value(string.format('[%d]', idx), value)
+    self:pretty_value(string.format('[%d]', idx), value)
   end
   for _, name in ipairs(sorted) do
     value = data[name]
-    pretty_value(name, value)
+    self:pretty_value(name, value)
   end
-  tag_pop()
+  self:tag_pop()
 end
 
-function tag_pop(new_depth)
+function HTML:tag_pop(new_depth)
   if not new_depth then
-    new_depth = depth - 1
+    new_depth = self.depth - 1
     if new_depth < 0 then
       new_depth = 0
     end
   end
-  while new_depth < depth do
-    tag = tagstack[#(tagstack)]
-    table.remove(tagstack, #(tagstack))
-    depth = depth - 1
-    html("</%s>", tag)
+  while new_depth < self.depth do
+    tag = self.tagstack[#(self.tagstack)]
+    table.remove(self.tagstack, #(self.tagstack))
+    self.depth = self.depth - 1
+    self:html("</%s>", tag)
   end
 end
 
@@ -283,7 +319,7 @@ if #(arg) ~= 2 then
   die("Usage: prettydoc <name> <directory>\n")
 end
 
-name = arg[1]
+realmtype = arg[1]
 dir = arg[2]
 fullname = dir .. "/../Saved/SavedVariables/DocExport.lua"
 
@@ -309,22 +345,26 @@ end
 
 table.sort(sorted)
 
-file, err = io.open(name .. ".html", "w")
-if not file then
-  die("Couldn't open %s.html: %s\n", name, err)
+singlefile = HTML:new(realmtype .. "/full")
+indexfile = HTML:new(realmtype .. "/index")
+
+function HTML:header(objectname)
+  self:tag_push('html')
+  if objectname then
+    self:html("<head><title>API Docs (%s) -- %s</title></head>", realmtype, objectname)
+  else
+    self:html("<head><title>API Docs (%s)</title></head>", realmtype)
+  end
+  self:tag_push('body')
+  self:tag_push('style')
+  self:html("table { border-style: solid; border-collapse: collapse; }")
+  self:html("th { border-bottom-style: solid; padding: 3pt; text-align: left; vertical-align: top; }")
+  self:html("td { border-bottom-style: solid; padding: 3pt; text-align: left; vertical-align: top; }")
+  self:tag_pop()
 end
 
-htmlfile = file
-depth = 0
-
-tag_push('html')
-html("<head><title>API Docs (%s)</title></head>", name)
-tag_push('body')
-tag_push('style')
-html("table { border-style: solid; border-collapse: collapse; }")
-html("th { border-bottom-style: solid; padding: 3pt; text-align: left; vertical-align: top; }")
-html("td { border-bottom-style: solid; padding: 3pt; text-align: left; vertical-align: top; }")
-tag_pop()
+singlefile:header()
+indexfile:header()
 
 function split(s, pattern)
   splits = {}
@@ -344,11 +384,21 @@ hardware_index = {}
 deprecated_index = {}
 req_secure_index = {}
 no_secure_index = {}
+smashed_index = {}
+-- *.TYPE.*, e.g., *.Item.*
+typesmash_index = {}
+typesmash_known = {}
 
 -- pass 1:  collect data
 for _, name in ipairs(sorted) do
   local details = DocExport[name]
   local dtype = type(details)
+  local top, middle, bottom = string.match(name, '(%a+)%.(%a+)%.(.*)')
+  if bottom then
+    typesmash_known[middle] = true
+    typesmash_index[name] = middle
+  end
+  smashed_index[name] = string.lower(string.gsub(name, '[./]', '_'))
   if dtype == 'table' then
     if details['type'] then
       my_type = details['type']
@@ -389,19 +439,72 @@ for _, name in ipairs(sorted) do
   end
 end
 
+typesmash_sorted = {}
+typesmash_files = {}
+
+for typesmash, _ in pairs(typesmash_known) do
+  table.insert(typesmash_sorted, typesmash)
+  local newfile = HTML:new(realmtype .. "/" .. typesmash .. '_index')
+  newfile:header()
+  newfile:html("<h4><a href='index.html'>Back to index...</a></h4>")
+  newfile:tag_push('table')
+  newfile:html("<tr><th>Name</th><th>Type</th><th>Deprecated</th><th>Secure</th><th>Description</th></tr>")
+  typesmash_files[typesmash] = newfile
+end
+table.sort(typesmash_sorted)
+
 -- pass 2:  Display index.
 
-html("<h1>INDEX</h1>")
-tag_push('table')
-html("<tr><th>Name</th><th>Type</th><th>Deprecated</th><th>Secure</th><th>Description</th></tr>")
+singlefile:html("<h1>INDEX (<a href='index.html'>Broken-down Listing</a>)</h1>")
+singlefile:tag_push('table')
+singlefile:html("<tr><th>Name</th><th>Type</th><th>Deprecated</th><th>Secure</th><th>Description</th></tr>")
+
+indexfile:html("<h1>INDEX (<a href='full.html'>Full Listing</a>)</h1>")
+indexfile:html("<h2>Categories:</h2>")
+indexfile:tag_push('table')
+indexfile:tag_push('tr')
+local rowcounter = 0
+for _, typesmash in ipairs(typesmash_sorted) do
+  if rowcounter == 0 then
+    indexfile:tag_push('tr')
+  end
+  indexfile:html("<th><a href='%s_index.html'>%s</a></th>", typesmash, typesmash)
+  rowcounter = rowcounter + 1
+  if rowcounter >= 4 then
+    indexfile:tag_pop()
+    rowcounter = 0
+  end
+end
+indexfile:tag_pop()
+indexfile:tag_push('table')
+indexfile:html("<tr><th>Name</th><th>Type</th><th>Deprecated</th><th>Secure</th><th>Description</th></tr>")
+
 for _, name in ipairs(sorted) do
   if type_index[name] or summary_index[name] then
     summary = summary_index[name] or ''
     if #summary > 100 then
       summary = string.sub(summary, 1, 97) .. '...'
     end
-    html('<tr><td><a href="#%s">%s</a></td><td><i>%s</i></td><td><i>%s</i></td><td>%s%s</td><td>%s</td></tr>',
+    singlefile:html('<tr><td><a href="#%s">%s</a></td><td><i>%s</i></td><td><i>%s</i></td><td>%s%s</td><td>%s</td></tr>',
       name,
+      name,
+      type_index[name] or '',
+      deprecated_index[name] and 'deprecated' or '',
+      req_secure_index[name] and 'Secure' or '',
+      no_secure_index[name] and 'Insecure' or '',
+      summary)
+    if typesmash_index[name] then
+      typesmash_files[typesmash_index[name]]:html('<tr><td><a href="#%s">%s</a></td><td><i>%s</i></td><td><i>%s</i></td><td>%s%s</td><td>%s</td></tr>',
+        name,
+        name,
+        type_index[name] or '',
+        deprecated_index[name] and 'deprecated' or '',
+        req_secure_index[name] and 'Secure' or '',
+        no_secure_index[name] and 'Insecure' or '',
+        summary)
+    end
+    indexfile:html('<tr><td><a href="%s.html">%s</a></td><td><i>%s</i></td><td><i>%s</i></td><td>%s%s</td><td>%s</td></tr>',
+      smashed_index[name],
       name,
       type_index[name] or '',
       deprecated_index[name] and 'deprecated' or '',
@@ -410,50 +513,86 @@ for _, name in ipairs(sorted) do
       summary)
   end
 end
-tag_pop()
+singlefile:tag_pop()
+indexfile:tag_pop()
+for name, smashfile in pairs(typesmash_files) do
+  smashfile:tag_pop()
+end
+
+function HTML:display_table(details)
+  if details['signature'] then
+    sigs = { string.format("%s -- variant", details['signature']) }
+    params = details['parameter']
+    results = details['result']
+    details['signature'] = nil
+    details['parameter'] = nil
+    details['result'] = nil
+    self:pretty_sig(sigs, params, results)
+  end
+  if details['signatures'] then
+    sigs = details['signatures']
+    params = details['parameter']
+    results = details['result']
+    details['signatures'] = nil
+    details['parameter'] = nil
+    details['result'] = nil
+    self:pretty_sig(sigs, params, results)
+  end
+  self:tag_push("dl")
+  for name, value in pairs(details) do
+    self:html("<dt><b>%s</b></dt>", name)
+    if type(value) == 'table' then
+      self:tag_push('dd')
+      self:pretty_table(value)
+      self:tag_pop()
+    else
+      self:html("<dd>%s</dd>", tostring(value))
+    end
+  end
+  self:tag_pop()
+end
 
 -- pass 3:  Detailed info
 for _, name in ipairs(sorted) do
   local details = DocExport[name]
   local dtype = type(details)
-  html('<h2><a name="%s">%s</a></h2>', name, name)
+  local onefile = HTML:new(realmtype .. "/" .. smashed_index[name])
+  local smashfile
+  onefile:header(name)
+  singlefile:html('<h2><a name="%s">%s</a></h2>', name, name)
+  onefile:html('<h2><a name="%s">%s</a></h2>', name, name)
+  if typesmash_index[name] then
+    smashfile = typesmash_files[typesmash_index[name]]
+  end
+  if smashfile then
+    smashfile:html('<h2><a name="%s">%s</a></h2>', name, name)
+  end
   if summary_index[name] then
-      html("<p><i>%s</i> %s</p>", display_type, summary_index[name])
+      singlefile:html("<p><i>%s</i> %s</p>", display_type, summary_index[name])
+      onefile:html("<p><i>%s</i> %s</p>", display_type, summary_index[name])
+      if smashfile then
+        smashfile:html("<p><i>%s</i> %s</p>", display_type, summary_index[name])
+      end
   end
   if dtype == 'table' then
-    if details['signature'] then
-      sigs = { string.format("%s -- variant", details['signature']) }
-      params = details['parameter']
-      results = details['result']
-      details['signature'] = nil
-      details['parameter'] = nil
-      details['result'] = nil
-      pretty_sig(sigs, params, results)
+    singlefile:display_table(details)
+    onefile:display_table(details)
+    if smashfile then
+      smashfile:display_table(details)
     end
-    if details['signatures'] then
-      sigs = details['signatures']
-      params = details['parameter']
-      results = details['result']
-      details['signatures'] = nil
-      details['parameter'] = nil
-      details['result'] = nil
-      pretty_sig(sigs, params, results)
-    end
-    tag_push("dl")
-    for name, value in pairs(details) do
-      html("<dt><b>%s</b></dt>", name)
-      if type(value) == 'table' then
-	tag_push('dd')
-	pretty_table(value)
-	tag_pop()
-      else
-	html("<dd>%s</dd>", tostring(value))
-      end
-    end
-    tag_pop()
   else
-    html("<p>(%s) %s</p>", dtype, tostring(details))
+    singlefile:html("<p>(%s) %s</p>", dtype, tostring(details))
+    onefile:html("<p>(%s) %s</p>", dtype, tostring(details))
+    if smashfile then
+      smashfile:html("<p>(%s) %s</p>", dtype, tostring(details))
+    end
   end
+  onefile:close()
 end
 
-tag_pop(0)
+for name, smashfile in pairs(typesmash_files) do
+  smashfile:html("<h4><a href='index.html'>Back to index...</a></h4>")
+  smashfile:close()
+end
+singlefile:close()
+indexfile:close()
