@@ -397,6 +397,13 @@ for _, name in ipairs(sorted) do
   if bottom then
     typesmash_known[middle] = true
     typesmash_index[name] = middle
+  else
+    -- frame types
+    top, middle, bottom = string.match(name, '(%a+)%.(Event):(.*)')
+    if bottom then
+      typesmash_known[top] = true
+      typesmash_index[name] = top
+    end
   end
   smashed_index[name] = string.lower(string.gsub(name, '[./]', '_'))
   if dtype == 'table' then
