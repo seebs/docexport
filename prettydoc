@@ -81,12 +81,36 @@ function HTML:tag_push(name)
   self.depth = self.depth + 1
 end
 
-function HTML:pretty_sig(sigs, params, results)
+function do_copy(table, visited)
+  local o = {}
+  for k, v in pairs(table) do
+    if type(v) == 'table' then
+      if not visited[v] then
+        visited[v] = true
+        o[k] = do_copy(v, visited)
+        visited[v] = o[k]
+      else
+        o[k] = visited[v]
+      end
+    else
+      o[k] = v
+    end
+  end
+  return o
+end
+
+function deep_copy(table)
+  local visited = {}
+  return do_copy(table, visited)
+end
+
+function HTML:pretty_sig(sigs_orig, params, results)
   local arg_types = {}
   local arg_descriptions = {}
   local sorted_params = nil
   local sorted_results = nil
   local deprecated, interaction, throttled, hardware, secure, insecure
+  local sigs = deep_copy(sigs_orig)
 
   for key, value in pairs(sigs) do
     self:debug('<p><i>%s</i>: %s</p>', key, value)
@@ -526,7 +550,8 @@ for name, smashfile in pairs(typesmash_files) do
   smashfile:tag_pop()
 end
 
-function HTML:display_table(details)
+function HTML:display_table(details_orig)
+  local details = deep_copy(details_orig)
   if details['signature'] then
     sigs = { string.format("%s -- variant", details['signature']) }
     params = details['parameter']

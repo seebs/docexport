@@ -1,3 +1,7 @@
+2012/03/22:
+	* Correctly display all data in all files, not just in the
+	  full index file.  (Destructive operations on tables, whoops.)
+
 2012/03/20:
 	* Provide multi-file format and *.Foo.* listings.
 	* And handle Foo.Event:* as well.
