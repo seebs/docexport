@@ -336,6 +336,7 @@ end
 
 function die(fmt, ...)
   printf('Fatal: ' .. fmt, ...)
+  printt(debug.traceback())
   os.exit(1)
 end
 
@@ -413,23 +414,34 @@ smashed_index = {}
 typesmash_index = {}
 typesmash_known = {}
 
+typesmash_rules = {
+  { pattern = '^([a-z][^.]*)$', index = 1, word = 'Miscellaneous' },
+  { pattern = '^([A-Z]%a+)$', index = 1 },
+  { pattern = '^(%a+):(.*)$', index = 1 },
+  { pattern = '^(%a+)%.(%a+)$', index = 2 },
+  { pattern = '^(%a+)%.(Event):(.*)$', index = 1 },
+  { pattern = '^(%a+)%.(%a+)%.(.*)$', index = 2 },
+}
+
 -- pass 1:  collect data
 for _, name in ipairs(sorted) do
   local details = DocExport[name]
   local dtype = type(details)
-  local top, middle, bottom = string.match(name, '(%a+)%.(%a+)%.(.*)')
-  if bottom then
-    typesmash_known[middle] = true
-    typesmash_index[name] = middle
-  else
-    -- frame types
-    top, middle, bottom = string.match(name, '(%a+)%.(Event):(.*)')
-    if bottom then
-      typesmash_known[top] = true
-      typesmash_index[name] = top
+  local smashed = nil
+  for _, rule in ipairs(typesmash_rules) do
+    local results = { string.match(name, rule.pattern) }
+    smashed = results[rule.index]
+    if smashed and smashed ~= '' then
+      typesmash_known[rule.word or smashed] = true
+      typesmash_index[name] = rule.word or smashed
+      break
     end
   end
-  smashed_index[name] = string.lower(string.gsub(name, '[./]', '_'))
+  if not smashed then
+    typesmash_known['UNMATCHED'] = true
+    typesmash_index[name] = 'UNMATCHED'
+  end
+  smashed_index[name] = string.lower(string.gsub(name, '[./:]', '_'))
   if dtype == 'table' then
     if details['type'] then
       my_type = details['type']

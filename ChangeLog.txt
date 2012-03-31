@@ -1,3 +1,6 @@
+2012/03/31:
+	* Improve categorization dramatically.
+
 2012/03/22:
 	* Correctly display all data in all files, not just in the
 	  full index file.  (Destructive operations on tables, whoops.)
