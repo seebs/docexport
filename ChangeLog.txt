@@ -1,5 +1,6 @@
 2012/03/31:
 	* Improve categorization dramatically.
+	* And improve it more.
 
 2012/03/22:
 	* Correctly display all data in all files, not just in the
