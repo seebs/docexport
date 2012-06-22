@@ -2,7 +2,7 @@ Identifier = "DocExport"
 
 Version = "VERSION"
 
-Email = "seebs@seebs.net"
+Email = "EMAIL"
 
 Name = {
   English = "DocExport",

@@ -1,3 +1,7 @@
+2012/06/22:
+	* Handle change to how deprecation is reported.
+	* Version bump.
+
 2012/03/31:
 	* Improve categorization dramatically.
 	* And improve it more.

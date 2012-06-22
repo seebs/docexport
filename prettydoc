@@ -109,7 +109,7 @@ function HTML:pretty_sig(sigs_orig, params, results)
   local arg_descriptions = {}
   local sorted_params = nil
   local sorted_results = nil
-  local deprecated, interaction, throttled, hardware, secure, insecure
+  local interaction, throttled, hardware, secure, insecure
   local sigs = deep_copy(sigs_orig)
 
   for key, value in pairs(sigs) do
@@ -144,10 +144,6 @@ function HTML:pretty_sig(sigs_orig, params, results)
   else
     interaction = false
   end
-  if sigs.deprecated then
-    deprecated = true
-    sigs.deprecated = nil
-  end
   if sigs.hardwareevent then
     hardware = true
     sigs.hardwareevent = nil
@@ -179,9 +175,6 @@ function HTML:pretty_sig(sigs_orig, params, results)
   	hardwareevent and '(Requires Hardware Event)' or '',
   	secure and '(Requires Secure Frame)' or '',
   	insecure and '(Does Not Require Secure Frame)' or '')
-  if deprecated then
-    self:html('<h4><i>DEPRECATED</i>.  Do not use.</h4>')
-  end
   if interaction then
     self:html('<p>Interaction category: %s</p>', interaction)
   end
@@ -445,28 +438,28 @@ for _, name in ipairs(sorted) do
   end
   smashed_index[name] = string.lower(string.gsub(name, '[./:]', '_'))
   if dtype == 'table' then
-    if details['type'] then
-      my_type = details['type']
-      type_index[name] = details['type']
-      details['type'] = nil
+    if details.type then
+      my_type = details.type
+      type_index[name] = details.type
+      details.type = nil
     else
       my_type = ''
     end
-    if details['summary'] then
+    if details.summary then
       if my_type ~= '' then
         display_type = string.format('%s:', my_type)
       else
         display_type = ''
       end
-      summary_index[name] = details['summary']
-      details['summary'] = nil
+      summary_index[name] = details.summary
+      details.summary = nil
+    end
+    if details.deprecated then
+      deprecated_index[name] = true
     end
     if details.signatures then
       if details.signatures.hardwareevent then
         hardware_index[name] = true
-      end
-      if details.signatures.deprecated then
-        deprecated_index[name] = true
       end
       if details.signatures.noSecureFrameAndEnvironment then
         no_secure_index[name] = true
@@ -566,22 +559,22 @@ end
 
 function HTML:display_table(details_orig)
   local details = deep_copy(details_orig)
-  if details['signature'] then
-    sigs = { string.format("%s -- variant", details['signature']) }
-    params = details['parameter']
-    results = details['result']
-    details['signature'] = nil
-    details['parameter'] = nil
-    details['result'] = nil
+  if details.signature then
+    sigs = { string.format("%s -- variant", details.signature) }
+    params = details.parameter
+    results = details.result
+    details.signature = nil
+    details.parameter = nil
+    details.result = nil
     self:pretty_sig(sigs, params, results)
   end
-  if details['signatures'] then
-    sigs = details['signatures']
-    params = details['parameter']
-    results = details['result']
-    details['signatures'] = nil
-    details['parameter'] = nil
-    details['result'] = nil
+  if details.signatures then
+    sigs = details.signatures
+    params = details.parameter
+    results = details.result
+    details.signatures = nil
+    details.parameter = nil
+    details.result = nil
     self:pretty_sig(sigs, params, results)
   end
   self:tag_push("dl")
@@ -604,9 +597,11 @@ for _, name in ipairs(sorted) do
   local dtype = type(details)
   local onefile = HTML:new(realmtype .. "/" .. smashed_index[name])
   local smashfile
+  local is_deprecated
   onefile:header(name)
-  singlefile:html('<h2><a name="%s">%s</a></h2>', name, name)
-  onefile:html('<h2><a name="%s">%s</a></h2>', name, name)
+  is_deprecated = deprecated_index[name] and '(deprecated)' or ''
+  singlefile:html('<h2><a name="%s">%s</a> %s</h2>', name, name, is_deprecated)
+  onefile:html('<h2><a name="%s">%s</a> %s</h2>', name, name, is_deprecated)
   if typesmash_index[name] then
     smashfile = typesmash_files[typesmash_index[name]]
   end
